@@ -1,0 +1,161 @@
+import tkinter as tk
+from tkinter import messagebox, ttk
+from pymongo import MongoClient
+
+# Connect to MongoDB
+client = MongoClient('mongodb://localhost:27017/')
+db = client['expense_sharing_app']
+users_collection = db['users']
+expenses_collection = db['expenses']
+
+# Define colors and fonts
+BACKGROUND_COLOR = "#B0E0E6"  # Light Powder Blue
+TEXT_COLOR = "#003153"  # Persian Blue
+FONT_STYLE = ("Georgia", 12)  # Fancy Font Style
+
+# Functions for the app
+def register_user():
+    username = entry_username.get()
+    password = entry_password.get()
+    
+    if username and password:
+        if users_collection.find_one({"username": username}):
+            messagebox.showerror("Error", "Username already exists!")
+        else:
+            users_collection.insert_one({"username": username, "password": password})
+            messagebox.showinfo("Success", "User registered successfully!")
+    else:
+        messagebox.showerror("Error", "Please enter both username and password")
+
+def login_user():
+    username = entry_username.get()
+    password = entry_password.get()
+    
+    user = users_collection.find_one({"username": username, "password": password})
+    if user:
+        messagebox.showinfo("Success", "Logged in successfully!")
+        open_expense_window(username)
+    else:
+        messagebox.showerror("Error", "Invalid username or password")
+
+def open_expense_window(username):
+    expense_window = tk.Toplevel()
+    expense_window.title("Expense Sharing")
+    expense_window.geometry("700x500")
+    expense_window.configure(bg=BACKGROUND_COLOR)
+    
+    lbl_expense = tk.Label(expense_window, text="Expense Description:", bg=BACKGROUND_COLOR, fg=TEXT_COLOR, font=FONT_STYLE)
+    lbl_expense.grid(row=0, column=0, padx=10, pady=10)
+    entry_expense = tk.Entry(expense_window, font=FONT_STYLE)
+    entry_expense.grid(row=0, column=1, padx=10, pady=10)
+    
+    lbl_amount = tk.Label(expense_window, text="Amount:", bg=BACKGROUND_COLOR, fg=TEXT_COLOR, font=FONT_STYLE)
+    lbl_amount.grid(row=1, column=0, padx=10, pady=10)
+    entry_amount = tk.Entry(expense_window, font=FONT_STYLE)
+    entry_amount.grid(row=1, column=1, padx=10, pady=10)
+    
+    lbl_split_with = tk.Label(expense_window, text="Split With (comma separated usernames):", bg=BACKGROUND_COLOR, fg=TEXT_COLOR, font=FONT_STYLE)
+    lbl_split_with.grid(row=2, column=0, padx=10, pady=10)
+    entry_split_with = tk.Entry(expense_window, font=FONT_STYLE)
+    entry_split_with.grid(row=2, column=1, padx=10, pady=10)
+    
+    def add_expense():
+        expense_desc = entry_expense.get()
+        amount = entry_amount.get()
+        split_with = entry_split_with.get().split(',')
+        split_with = [name.strip() for name in split_with if name.strip()]
+        
+        if expense_desc and amount and split_with:
+            try:
+                amount = float(amount)
+                if len(split_with) > 0:
+                    share_amount = amount / len(split_with)
+                    expense_data = {
+                        "username": username,
+                        "expense_desc": expense_desc,
+                        "amount": amount,
+                        "share_amount": share_amount,
+                        "split_with": split_with,
+                        "paid_by": []
+                    }
+                    expenses_collection.insert_one(expense_data)
+                    messagebox.showinfo("Success", "Expense added successfully!")
+                    refresh_expenses()
+                else:
+                    messagebox.showerror("Error", "Must split with at least one person")
+            except ValueError:
+                messagebox.showerror("Error", "Amount must be a number")
+        else:
+            messagebox.showerror("Error", "Please fill all fields")
+    
+    btn_add_expense = tk.Button(expense_window, text="Add Expense", command=add_expense, font=FONT_STYLE)
+    btn_add_expense.grid(row=3, column=1, padx=10, pady=10)
+    
+    expense_list = ttk.Treeview(expense_window, columns=("desc", "amount", "share_amount", "split_with", "paid_by"), show='headings')
+    expense_list.heading("desc", text="Description")
+    expense_list.heading("amount", text="Total Amount")
+    expense_list.heading("share_amount", text="Share Amount")
+    expense_list.heading("split_with", text="Split With")
+    expense_list.heading("paid_by", text="Paid By")
+    expense_list.grid(row=4, column=0, columnspan=2, pady=10, padx=10)
+    
+    def refresh_expenses():
+        for row in expense_list.get_children():
+            expense_list.delete(row)
+        
+        expenses = expenses_collection.find({"username": username})
+        for expense in expenses:
+            split_with_str = ", ".join(expense.get("split_with", []))
+            paid_by_str = ", ".join(expense.get("paid_by", []))
+            expense_list.insert("", tk.END, values=(
+                expense.get("expense_desc", ""),
+                expense.get("amount", 0),
+                expense.get("share_amount", 0),
+                split_with_str,
+                paid_by_str
+            ))
+    
+    def mark_as_paid():
+        selected_item = expense_list.selection()[0]
+        values = expense_list.item(selected_item, 'values')
+        expense_desc = values[0]
+        
+        expenses_collection.update_one(
+            {"username": username, "expense_desc": expense_desc},
+            {"$addToSet": {"paid_by": username}}
+        )
+        refresh_expenses()
+    
+    btn_mark_as_paid = tk.Button(expense_window, text="Mark as Paid", command=mark_as_paid, font=FONT_STYLE)
+    btn_mark_as_paid.grid(row=5, column=1, padx=10, pady=10)
+    
+    refresh_expenses()
+    expense_window.mainloop()
+
+# Main Application Window
+root = tk.Tk()
+root.title("Expense Sharing App")
+root.geometry("400x300")
+root.configure(bg=BACKGROUND_COLOR)
+
+# Login/Register Frame
+frame = tk.Frame(root, bg=BACKGROUND_COLOR)
+frame.pack(pady=20)
+
+lbl_username = tk.Label(frame, text="Username:", bg=BACKGROUND_COLOR, fg=TEXT_COLOR, font=FONT_STYLE)
+lbl_username.grid(row=0, column=0, padx=10, pady=10)
+entry_username = tk.Entry(frame, font=FONT_STYLE)
+entry_username.grid(row=0, column=1, padx=10, pady=10)
+
+lbl_password = tk.Label(frame, text="Password:", bg=BACKGROUND_COLOR, fg=TEXT_COLOR, font=FONT_STYLE)
+lbl_password.grid(row=1, column=0, padx=10, pady=10)
+entry_password = tk.Entry(frame, show="*", font=FONT_STYLE)
+entry_password.grid(row=1, column=1, padx=10, pady=10)
+
+btn_register = tk.Button(frame, text="Register", command=register_user, font=FONT_STYLE)
+btn_register.grid(row=2, column=0, padx=10, pady=10)
+
+btn_login = tk.Button(frame, text="Login", command=login_user, font=FONT_STYLE)
+btn_login.grid(row=2, column=1, padx=10, pady=10)
+
+root.mainloop()

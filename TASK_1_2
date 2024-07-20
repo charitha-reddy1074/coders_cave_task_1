@@ -1,0 +1,179 @@
+import tkinter as tk
+from tkinter import messagebox, ttk
+from pymongo import MongoClient
+from bson.objectid import ObjectId
+
+# MongoDB Setup
+client = MongoClient('mongodb://localhost:27017/')
+db = client['medical_appointment_scheduler']
+users_collection = db['users']
+appointments_collection = db['appointments']
+medical_records_collection = db['medical_records']
+
+# Define colors and fonts
+BACKGROUND_COLOR = "#B0E0E6"
+TEXT_COLOR = "#003153"
+FONT_STYLE = ("Georgia", 12)
+
+def add_user(username, password, role, email, phone):
+    if users_collection.find_one({"username": username}):
+        return "Username already exists"
+    else:
+        users_collection.insert_one({
+            "username": username,
+            "password": password,
+            "role": role,
+            "contact_info": {"email": email, "phone": phone}
+        })
+        return "User registered successfully"
+
+def authenticate_user(username, password):
+    return users_collection.find_one({"username": username, "password": password})
+
+def add_appointment(patient_id, provider_id, date_time, notes):
+    appointments_collection.insert_one({
+        "patient_id": ObjectId(patient_id),
+        "provider_id": ObjectId(provider_id),
+        "date_time": date_time,
+        "status": "scheduled",
+        "notes": notes
+    })
+    return "Appointment scheduled successfully"
+
+def get_appointments():
+    return list(appointments_collection.find())
+
+def add_medical_record(patient_id, record_date, record_details):
+    medical_records_collection.insert_one({
+        "patient_id": ObjectId(patient_id),
+        "record_date": record_date,
+        "record_details": record_details
+    })
+    return "Medical record added successfully"
+
+def get_medical_records(patient_id):
+    return list(medical_records_collection.find({"patient_id": ObjectId(patient_id)}))
+
+def register_user():
+    username = entry_username.get()
+    password = entry_password.get()
+    role = var_role.get()
+    email = entry_email.get()
+    phone = entry_phone.get()
+
+    result = add_user(username, password, role, email, phone)
+    messagebox.showinfo("Info", result)
+
+def login_user():
+    username = entry_username.get()
+    password = entry_password.get()
+
+    user = authenticate_user(username, password)
+    if user:
+        messagebox.showinfo("Success", "Logged in successfully!")
+        open_dashboard(user['_id'], user['role'])
+    else:
+        messagebox.showerror("Error", "Invalid username or password")
+
+def open_dashboard(user_id, role):
+    dashboard = tk.Toplevel()
+    dashboard.title("Dashboard")
+    dashboard.geometry("800x600")
+    dashboard.configure(bg=BACKGROUND_COLOR)
+
+    if role == "provider":
+        lbl_appointments = tk.Label(dashboard, text="Appointments", bg=BACKGROUND_COLOR, fg=TEXT_COLOR, font=FONT_STYLE)
+        lbl_appointments.pack(pady=10)
+
+        appointment_list = ttk.Treeview(dashboard, columns=("patient", "date_time", "status", "notes"), show='headings')
+        appointment_list.heading("patient", text="Patient")
+        appointment_list.heading("date_time", text="Date & Time")
+        appointment_list.heading("status", text="Status")
+        appointment_list.heading("notes", text="Notes")
+        appointment_list.pack(pady=10, fill=tk.BOTH, expand=True)
+
+        def refresh_appointments():
+            for row in appointment_list.get_children():
+                appointment_list.delete(row)
+            
+            appointments = get_appointments()
+            for appointment in appointments:
+                # Fetch patient and provider details if needed
+                patient = "Unknown"  # Placeholder
+                date_time = appointment["date_time"]
+                status = appointment["status"]
+                notes = appointment["notes"]
+                appointment_list.insert("", tk.END, values=(patient, date_time, status, notes))
+        
+        refresh_appointments()
+    
+    elif role == "patient":
+        lbl_schedule = tk.Label(dashboard, text="Schedule Appointment", bg=BACKGROUND_COLOR, fg=TEXT_COLOR, font=FONT_STYLE)
+        lbl_schedule.pack(pady=10)
+
+        lbl_date_time = tk.Label(dashboard, text="Date and Time:", bg=BACKGROUND_COLOR, fg=TEXT_COLOR, font=FONT_STYLE)
+        lbl_date_time.pack(pady=5)
+        entry_date_time = tk.Entry(dashboard, font=FONT_STYLE)
+        entry_date_time.pack(pady=5)
+
+        lbl_notes = tk.Label(dashboard, text="Notes:", bg=BACKGROUND_COLOR, fg=TEXT_COLOR, font=FONT_STYLE)
+        lbl_notes.pack(pady=5)
+        entry_notes = tk.Entry(dashboard, font=FONT_STYLE)
+        entry_notes.pack(pady=5)
+
+        def schedule_appointment():
+            date_time = entry_date_time.get()
+            notes = entry_notes.get()
+            result = add_appointment(user_id, "provider_id_placeholder", date_time, notes)
+            messagebox.showinfo("Info", result)
+
+        btn_schedule = tk.Button(dashboard, text="Schedule Appointment", command=schedule_appointment, font=FONT_STYLE)
+        btn_schedule.pack(pady=10)
+    
+    dashboard.mainloop()
+
+# Main Application Window
+root = tk.Tk()
+root.title("Medical Appointment Scheduler")
+root.geometry("400x300")
+root.configure(bg=BACKGROUND_COLOR)
+
+# Login/Register Frame
+frame = tk.Frame(root, bg=BACKGROUND_COLOR)
+frame.pack(pady=20)
+
+lbl_username = tk.Label(frame, text="Username:", bg=BACKGROUND_COLOR, fg=TEXT_COLOR, font=FONT_STYLE)
+lbl_username.grid(row=0, column=0, padx=10, pady=10)
+entry_username = tk.Entry(frame, font=FONT_STYLE)
+entry_username.grid(row=0, column=1, padx=10, pady=10)
+
+lbl_password = tk.Label(frame, text="Password:", bg=BACKGROUND_COLOR, fg=TEXT_COLOR, font=FONT_STYLE)
+lbl_password.grid(row=1, column=0, padx=10, pady=10)
+entry_password = tk.Entry(frame, show="*", font=FONT_STYLE)
+entry_password.grid(row=1, column=1, padx=10, pady=10)
+
+lbl_role = tk.Label(frame, text="Role:", bg=BACKGROUND_COLOR, fg=TEXT_COLOR, font=FONT_STYLE)
+lbl_role.grid(row=2, column=0, padx=10, pady=10)
+var_role = tk.StringVar(value="patient")
+rbtn_patient = tk.Radiobutton(frame, text="Patient", variable=var_role, value="patient", bg=BACKGROUND_COLOR, fg=TEXT_COLOR, font=FONT_STYLE)
+rbtn_patient.grid(row=2, column=1, padx=10, pady=5)
+rbtn_provider = tk.Radiobutton(frame, text="Provider", variable=var_role, value="provider", bg=BACKGROUND_COLOR, fg=TEXT_COLOR, font=FONT_STYLE)
+rbtn_provider.grid(row=2, column=2, padx=10, pady=5)
+
+lbl_email = tk.Label(frame, text="Email:", bg=BACKGROUND_COLOR, fg=TEXT_COLOR, font=FONT_STYLE)
+lbl_email.grid(row=3, column=0, padx=10, pady=10)
+entry_email = tk.Entry(frame, font=FONT_STYLE)
+entry_email.grid(row=3, column=1, padx=10, pady=10)
+
+lbl_phone = tk.Label(frame, text="Phone:", bg=BACKGROUND_COLOR, fg=TEXT_COLOR, font=FONT_STYLE)
+lbl_phone.grid(row=4, column=0, padx=10, pady=10)
+entry_phone = tk.Entry(frame, font=FONT_STYLE)
+entry_phone.grid(row=4, column=1, padx=10, pady=10)
+
+btn_register = tk.Button(frame, text="Register", command=register_user, font=FONT_STYLE)
+btn_register.grid(row=5, column=0, padx=10, pady=10)
+
+btn_login = tk.Button(frame, text="Login", command=login_user, font=FONT_STYLE)
+btn_login.grid(row=5, column=1, padx=10, pady=10)
+
+root.mainloop()
